@@ -14,9 +14,10 @@ struct PersistenceController {
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
-        for _ in 0..<10 {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
+        for count in 0..<10 {
+            let newItem = Rally(context: viewContext)
+            newItem.rallyName = "VAT25"
+            newItem.eqNumber = Int16(count)
         }
         do {
             try viewContext.save()
