@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreData
+import AVFoundation
 
 // Enum for managing alerts.
 enum ControlCardAlert: Identifiable {
@@ -23,6 +24,12 @@ struct ControlCardRow: Identifiable {
     var col2: String = ""
     var col3: String = ""
     var col4: String = ""
+    
+    // Mark columns that were filled via QR and must not be edited
+    var col1Locked: Bool = false
+    var col2Locked: Bool = false
+    var col3Locked: Bool = false
+    var col4Locked: Bool = false
 }
 
 // Enum to represent each focusable field.
@@ -36,13 +43,15 @@ struct ControlCardView: View {
 
     // The Rally object for which we are creating the control card.
     @ObservedObject var rally: Rally
-    @State private var rows: [ControlCardRow] = (1...30).map { ControlCardRow(id: $0) }
+    @State private var rows: [ControlCardRow] = (1...40).map { ControlCardRow(id: $0) }
     
     // Use a single alert state to manage both confirmation and submission alerts.
     @State private var activeAlert: ControlCardAlert? = nil
     
     // Focus state to manage which text field is active.
     @FocusState private var focusedField: Field?
+    
+    @State private var isShowingScanner = false
 
     var body: some View {
         Form {
@@ -81,7 +90,7 @@ struct ControlCardView: View {
                                     focusedField = .field(row: row.id, col: 2)
                                 }
                             }
-                            .disabled(rally.isFinalized)
+                            .disabled(rally.isFinalized || row.col1Locked)
                         
                         // Column 2
                         TextField("", text: $row.col2)
@@ -102,7 +111,7 @@ struct ControlCardView: View {
                                     focusedField = .field(row: row.id, col: 3)
                                 }
                             }
-                            .disabled(rally.isFinalized)
+                            .disabled(rally.isFinalized || row.col2Locked)
                         
                         // Column 3
                         TextField("", text: $row.col3)
@@ -123,7 +132,7 @@ struct ControlCardView: View {
                                     focusedField = .field(row: row.id, col: 4)
                                 }
                             }
-                            .disabled(rally.isFinalized)
+                            .disabled(rally.isFinalized || row.col3Locked)
                         
                         // Column 4
                         TextField("", text: $row.col4)
@@ -152,11 +161,19 @@ struct ControlCardView: View {
                                     }
                                 }
                             }
-                            .disabled(rally.isFinalized)
+                            .disabled(rally.isFinalized || row.col4Locked)
                     }
                 }
             }
             if !rally.isFinalized {
+                Section {
+                    Button {
+                        isShowingScanner = true
+                    } label: {
+                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                    }
+                }
+                
                 Section {
                     Button("Finalize") {
                         // Show confirmation popup before finalizing.
@@ -193,6 +210,17 @@ struct ControlCardView: View {
                 )
             }
         }
+        .sheet(isPresented: $isShowingScanner) {
+            QRCodeScannerView { result in
+                isShowingScanner = false
+                switch result {
+                case .success(let code):
+                    handleScanned(code: code)
+                case .failure(let error):
+                    activeAlert = .submission("Scanning failed: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     // Header for the table columns.
@@ -204,6 +232,48 @@ struct ControlCardView: View {
             Text("Col3").frame(width: 70)
             Text("Col4").frame(width: 70)
         }
+    }
+    
+    private func handleScanned(code: String) {
+        // Expect something like "15:G"
+        let parts = code.split(separator: ":")
+
+        guard parts.count == 2,
+              let rowNumber = Int(parts[0].trimmingCharacters(in: .whitespaces)),
+              let letter = parts[1].trimmingCharacters(in: .whitespaces).first else {
+            activeAlert = .submission("Unexpected QR format: \(code). Expected e.g. 15:G")
+            return
+        }
+
+        guard let index = rows.firstIndex(where: { $0.id == rowNumber }) else {
+            activeAlert = .submission("Row \(rowNumber) is not in this control card.")
+            return
+        }
+
+        var row = rows[index]
+        let value = String(letter)
+
+        // Put the letter in the first free, non-locked column
+        if row.col1.isEmpty && !row.col1Locked {
+            row.col1 = value
+            row.col1Locked = true
+        } else if row.col2.isEmpty && !row.col2Locked {
+            row.col2 = value
+            row.col2Locked = true
+        } else if row.col3.isEmpty && !row.col3Locked {
+            row.col3 = value
+            row.col3Locked = true
+        } else if row.col4.isEmpty && !row.col4Locked {
+            row.col4 = value
+            row.col4Locked = true
+        } else {
+            activeAlert = .submission("Row \(rowNumber) already has all 4 columns filled.")
+            return
+        }
+
+        rows[index] = row
+        
+        saveControlCardData()
     }
     
     // Load any previously saved ControlCard data for this Rally.
@@ -226,6 +296,12 @@ struct ControlCardView: View {
                     rows[i].col2 = card.col2 ?? ""
                     rows[i].col3 = card.col3 ?? ""
                     rows[i].col4 = card.col4 ?? ""
+                    
+                    // NEW: restore lock flags
+                    rows[i].col1Locked = card.col1Locked
+                    rows[i].col2Locked = card.col2Locked
+                    rows[i].col3Locked = card.col3Locked
+                    rows[i].col4Locked = card.col4Locked
                 }
             }
         } catch {
@@ -255,6 +331,13 @@ struct ControlCardView: View {
             card.col2 = row.col2
             card.col3 = row.col3
             card.col4 = row.col4
+            
+            // NEW: persist lock flags
+            card.col1Locked = row.col1Locked
+            card.col2Locked = row.col2Locked
+            card.col3Locked = row.col3Locked
+            card.col4Locked = row.col4Locked
+            
             card.timestamp = Date()
             card.rally = rally
         }
@@ -282,7 +365,12 @@ struct ControlCardView: View {
             }
         ]
         
-        guard let url = URL(string: "https://www.sarkonline.com/wp-json/sarkcv/v1/insert") else {
+//        guard let url = URL(string: "https://www.sarkonline.com/wp-json/sarkcv/v1/insert") else {
+//            activeAlert = .submission("Invalid URL.")
+//            return
+//        }
+        
+        guard let url = URL(string: "https://webhook.site/1c31ed34-e29e-47d3-bf11-04d3573de1b6") else {
             activeAlert = .submission("Invalid URL.")
             return
         }
@@ -343,6 +431,102 @@ struct ControlCardView_Previews: PreviewProvider {
         return NavigationView {
             ControlCardView(rally: sampleRally)
                 .environment(\.managedObjectContext, context)
+        }
+    }
+}
+
+
+struct QRCodeScannerView: UIViewControllerRepresentable {
+    enum ScanError: Error {
+        case badInput
+        case badOutput
+    }
+
+    var completion: (Result<String, Error>) -> Void
+
+    func makeUIViewController(context: Context) -> ScannerViewController {
+        let vc = ScannerViewController()
+        vc.completion = completion
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: ScannerViewController, context: Context) {
+        // Nothing to update
+    }
+}
+
+class ScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+    var captureSession: AVCaptureSession!
+    var previewLayer: AVCaptureVideoPreviewLayer!
+    var completion: ((Result<String, Error>) -> Void)?
+    private var didSendResult = false
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        captureSession = AVCaptureSession()
+
+        guard let videoCaptureDevice = AVCaptureDevice.default(for: .video) else {
+            completion?(.failure(QRCodeScannerView.ScanError.badInput))
+            return
+        }
+
+        guard let videoInput = try? AVCaptureDeviceInput(device: videoCaptureDevice) else {
+            completion?(.failure(QRCodeScannerView.ScanError.badInput))
+            return
+        }
+
+        if captureSession.canAddInput(videoInput) {
+            captureSession.addInput(videoInput)
+        } else {
+            completion?(.failure(QRCodeScannerView.ScanError.badInput))
+            return
+        }
+
+        let metadataOutput = AVCaptureMetadataOutput()
+
+        if captureSession.canAddOutput(metadataOutput) {
+            captureSession.addOutput(metadataOutput)
+            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            metadataOutput.metadataObjectTypes = [.qr]
+        } else {
+            completion?(.failure(QRCodeScannerView.ScanError.badOutput))
+            return
+        }
+
+        previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
+        previewLayer.frame = view.layer.bounds
+        previewLayer.videoGravity = .resizeAspectFill
+        view.layer.addSublayer(previewLayer)
+
+        captureSession.startRunning()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer.frame = view.layer.bounds
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if captureSession?.isRunning == true {
+            captureSession.stopRunning()
+        }
+    }
+
+    func metadataOutput(
+        _ output: AVCaptureMetadataOutput,
+        didOutput metadataObjects: [AVMetadataObject],
+        from connection: AVCaptureConnection
+    ) {
+        guard !didSendResult else { return }
+
+        if let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+           let stringValue = metadataObject.stringValue {
+            didSendResult = true
+            captureSession.stopRunning()
+            completion?(.success(stringValue))
         }
     }
 }

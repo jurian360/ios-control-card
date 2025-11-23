@@ -21,22 +21,9 @@
 		E3B936F22D806B880004D274 /* Rally+CoreDataProperties.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Rally+CoreDataProperties.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		E3AA4C862D9CBDE900B79609 /* Exceptions for "Control Card" folder in "Control Card" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"Control-Card-Info.plist",
-			);
-			target = E3B936D82D80692A0004D274 /* Control Card */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E3B936DB2D80692A0004D274 /* Control Card */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				E3AA4C862D9CBDE900B79609 /* Exceptions for "Control Card" folder in "Control Card" target */,
-			);
 			path = "Control Card";
 			sourceTree = "<group>";
 		};
@@ -289,6 +276,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Control-Card-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Need camera access to scan control card QR codes.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -325,6 +313,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Control-Card-Info.plist";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Need camera access to scan control card QR codes.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

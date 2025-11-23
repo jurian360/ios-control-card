@@ -22,6 +22,10 @@ extension ControlCard {
     @NSManaged public var col2: String?
     @NSManaged public var col3: String?
     @NSManaged public var col4: String?
+    @NSManaged public var col1Locked: Bool
+    @NSManaged public var col2Locked: Bool
+    @NSManaged public var col3Locked: Bool
+    @NSManaged public var col4Locked: Bool
     @NSManaged public var rally: Rally?
 
 }
