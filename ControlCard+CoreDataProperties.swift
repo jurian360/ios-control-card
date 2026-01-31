@@ -26,6 +26,7 @@ extension ControlCard {
     @NSManaged public var col2Locked: Bool
     @NSManaged public var col3Locked: Bool
     @NSManaged public var col4Locked: Bool
+    @NSManaged public var rowLocked: Bool
     @NSManaged public var rally: Rally?
 
 }

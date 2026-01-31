@@ -30,6 +30,8 @@ struct ControlCardRow: Identifiable {
     var col2Locked: Bool = false
     var col3Locked: Bool = false
     var col4Locked: Bool = false
+    
+    var rowLocked: Bool = false
 }
 
 // Enum to represent each focusable field.
@@ -67,102 +69,110 @@ struct ControlCardView: View {
             Section(header: tableHeaderView) {
                 ForEach($rows) { $row in
                     HStack {
-                        Text("\(row.id)")
-                            .frame(width: 40, alignment: .center)
-                        
-                        // Column 1
-                        TextField("", text: $row.col1)
-                            .focused($focusedField, equals: .field(row: row.id, col: 1))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col1) { newValue in
-                                if newValue.count > 1 {
-                                    row.col1 = String(newValue.prefix(1))
-                                }
-                                if newValue.count == 1 {
-                                    // Move to the next column.
-                                    focusedField = .field(row: row.id, col: 2)
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col1Locked)
-                        
-                        // Column 2
-                        TextField("", text: $row.col2)
-                            .focused($focusedField, equals: .field(row: row.id, col: 2))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col2) { newValue in
-                                if newValue.count > 1 {
-                                    row.col2 = String(newValue.prefix(1))
-                                }
-                                if newValue.count == 1 {
-                                    focusedField = .field(row: row.id, col: 3)
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col2Locked)
-                        
-                        // Column 3
-                        TextField("", text: $row.col3)
-                            .focused($focusedField, equals: .field(row: row.id, col: 3))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col3) { newValue in
-                                if newValue.count > 1 {
-                                    row.col3 = String(newValue.prefix(1))
-                                }
-                                if newValue.count == 1 {
-                                    focusedField = .field(row: row.id, col: 4)
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col3Locked)
-                        
-                        // Column 4
-                        TextField("", text: $row.col4)
-                            .focused($focusedField, equals: .field(row: row.id, col: 4))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col4) { newValue in
-                                if newValue.count > 1 {
-                                    row.col4 = String(newValue.prefix(1))
-                                }
-                                if newValue.count == 1 {
-                                    // If not on the last row, move focus to the first column of the next row.
-                                    if let currentIndex = rows.firstIndex(where: { $0.id == row.id }),
-                                       currentIndex < rows.count - 1 {
-                                        let nextRow = rows[currentIndex + 1]
-                                        focusedField = .field(row: nextRow.id, col: 1)
-                                    } else {
-                                        // Optionally, clear focus if it was the last row.
-                                        focusedField = nil
+                                Text("\(row.id)")
+                                    .frame(width: 40, alignment: .center)
+                                
+                                // Column 1
+                                TextField("", text: $row.col1)
+                                    .focused($focusedField, equals: .field(row: row.id, col: 1))
+                                    .font(.system(size: 24))
+                                    .padding(8)
+                                    .frame(width: 70, height: 70)
+                                    .multilineTextAlignment(.center)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray, lineWidth: 1)
+                                    )
+                                    .onChange(of: row.col1) { newValue in
+                                        // Prevent any logic if row is locked
+                                        if row.rowLocked { return }
+                                        if newValue.count > 1 {
+                                            row.col1 = String(newValue.prefix(1))
+                                        }
+                                        if newValue.count == 1 {
+                                            // Move to the next column.
+                                            focusedField = .field(row: row.id, col: 2)
+                                        }
                                     }
-                                }
+                                    .disabled(rally.isFinalized || row.col1Locked || row.rowLocked)
+                                
+                                // Column 2
+                                TextField("", text: $row.col2)
+                                    .focused($focusedField, equals: .field(row: row.id, col: 2))
+                                    .font(.system(size: 24))
+                                    .padding(8)
+                                    .frame(width: 70, height: 70)
+                                    .multilineTextAlignment(.center)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray, lineWidth: 1)
+                                    )
+                                    .onChange(of: row.col2) { newValue in
+                                        if row.rowLocked { return }
+                                        if newValue.count > 1 {
+                                            row.col2 = String(newValue.prefix(1))
+                                        }
+                                        if newValue.count == 1 {
+                                            focusedField = .field(row: row.id, col: 3)
+                                        }
+                                    }
+                                    .disabled(rally.isFinalized || row.col2Locked || row.rowLocked)
+                                
+                                // Column 3
+                                TextField("", text: $row.col3)
+                                    .focused($focusedField, equals: .field(row: row.id, col: 3))
+                                    .font(.system(size: 24))
+                                    .padding(8)
+                                    .frame(width: 70, height: 70)
+                                    .multilineTextAlignment(.center)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray, lineWidth: 1)
+                                    )
+                                    .onChange(of: row.col3) { newValue in
+                                        if row.rowLocked { return }
+                                        if newValue.count > 1 {
+                                            row.col3 = String(newValue.prefix(1))
+                                        }
+                                        if newValue.count == 1 {
+                                            focusedField = .field(row: row.id, col: 4)
+                                        }
+                                    }
+                                    .disabled(rally.isFinalized || row.col3Locked || row.rowLocked)
+                                
+                                // Column 4
+                                TextField("", text: $row.col4)
+                                    .focused($focusedField, equals: .field(row: row.id, col: 4))
+                                    .font(.system(size: 24))
+                                    .padding(8)
+                                    .frame(width: 70, height: 70)
+                                    .multilineTextAlignment(.center)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color.gray, lineWidth: 1)
+                                    )
+                                    .onChange(of: row.col4) { newValue in
+                                        if row.rowLocked { return }
+                                        if newValue.count > 1 {
+                                            row.col4 = String(newValue.prefix(1))
+                                        }
+                                        if newValue.count == 1 {
+                                            // If not on the last row, move focus to the first column of the next row.
+                                            if let currentIndex = rows.firstIndex(where: { $0.id == row.id }),
+                                               currentIndex < rows.count - 1 {
+                                                let nextRow = rows[currentIndex + 1]
+                                                focusedField = .field(row: nextRow.id, col: 1)
+                                            } else {
+                                                // Optionally, clear focus if it was the last row.
+                                                focusedField = nil
+                                            }
+                                        }
+                                    }
+                                    .disabled(rally.isFinalized || row.col4Locked || row.rowLocked)
                             }
-                            .disabled(rally.isFinalized || row.col4Locked)
-                    }
+                            // GRAY OUT ENTIRE ROW WHEN LOCKED
+                            .opacity(row.rowLocked ? 0.5 : 1.0)
+                            .background(row.rowLocked ? Color.gray.opacity(0.15) : Color.clear)
                 }
             }
             if !rally.isFinalized {
@@ -235,7 +245,18 @@ struct ControlCardView: View {
     }
     
     private func handleScanned(code: String) {
-        // Expect something like "15:G"
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+            let upper = trimmed.uppercased()
+            
+            if upper.hasPrefix("LOCK:") {
+                handleLockRows(from: trimmed)
+            } else {
+                handleSingleCellScan(from: trimmed)
+            }
+    }
+    
+    // Handle "15:G" style codes
+    private func handleSingleCellScan(from code: String) {
         let parts = code.split(separator: ":")
 
         guard parts.count == 2,
@@ -252,6 +273,12 @@ struct ControlCardView: View {
 
         var row = rows[index]
         let value = String(letter)
+
+        // If the whole row is locked, do nothing
+        if row.rowLocked {
+            activeAlert = .submission("Row \(rowNumber) is locked and cannot be changed.")
+            return
+        }
 
         // Put the letter in the first free, non-locked column
         if row.col1.isEmpty && !row.col1Locked {
@@ -272,8 +299,48 @@ struct ControlCardView: View {
         }
 
         rows[index] = row
-        
         saveControlCardData()
+    }
+
+    // Handle "LOCK:1-2-3-4-5-16-17" style codes
+    private func handleLockRows(from code: String) {
+        // Split "LOCK:1-2-3" -> ["LOCK", "1-2-3"]
+        let parts = code.split(separator: ":")
+        guard parts.count == 2 else {
+            activeAlert = .submission("Unexpected LOCK format: \(code). Expected e.g. LOCK:1-2-3")
+            return
+        }
+
+        let rowsPart = parts[1]
+        let tokens = rowsPart.split(separator: "-")
+
+        var lockedAny = false
+        for token in tokens {
+            let trimmedToken = token.trimmingCharacters(in: .whitespaces)
+            guard let rowNumber = Int(trimmedToken),
+                  let index = rows.firstIndex(where: { $0.id == rowNumber }) else {
+                continue
+            }
+
+            var row = rows[index]
+            row.rowLocked = true
+
+            // Optionally also lock all columns so they behave uniformly
+            row.col1Locked = true
+            row.col2Locked = true
+            row.col3Locked = true
+            row.col4Locked = true
+
+            rows[index] = row
+            lockedAny = true
+        }
+
+        if lockedAny {
+            saveControlCardData()
+            activeAlert = .submission("Rows locked successfully.")
+        } else {
+            activeAlert = .submission("No matching rows found to lock in: \(code)")
+        }
     }
     
     // Load any previously saved ControlCard data for this Rally.
@@ -302,6 +369,8 @@ struct ControlCardView: View {
                     rows[i].col2Locked = card.col2Locked
                     rows[i].col3Locked = card.col3Locked
                     rows[i].col4Locked = card.col4Locked
+                    
+                    rows[i].rowLocked  = card.rowLocked
                 }
             }
         } catch {
@@ -337,6 +406,9 @@ struct ControlCardView: View {
             card.col2Locked = row.col2Locked
             card.col3Locked = row.col3Locked
             card.col4Locked = row.col4Locked
+            
+            // NEW: persist row-level lock
+            card.rowLocked  = row.rowLocked
             
             card.timestamp = Date()
             card.rally = rally
