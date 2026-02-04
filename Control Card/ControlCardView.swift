@@ -45,7 +45,7 @@ struct ControlCardView: View {
 
     // The Rally object for which we are creating the control card.
     @ObservedObject var rally: Rally
-    @State private var rows: [ControlCardRow] = (1...40).map { ControlCardRow(id: $0) }
+    @State private var rows: [ControlCardRow] = (1...36).map { ControlCardRow(id: $0) }
     
     // Use a single alert state to manage both confirmation and submission alerts.
     @State private var activeAlert: ControlCardAlert? = nil
@@ -58,9 +58,9 @@ struct ControlCardView: View {
     var body: some View {
         Form {
             Section(header: Text("Rally Info")) {
-                Text("Rally Code: \(rally.rallyCode ?? "")")
-                Text("Rally Name: \(rally.rallyName ?? "")")
-                Text("EQ Number: \(rally.eqNumber)")
+                Text("Rally code: \((rally.rallyCode ?? "").uppercased())")
+                Text("Kaart nummer: \(rally.cardNumber)")
+                Text("EQ nummer: \(rally.eqNumber)")
                 if rally.isFinalized {
                     Text("Status: Finalized")
                         .foregroundColor(.green)
@@ -193,6 +193,18 @@ struct ControlCardView: View {
             }
         }
         .navigationTitle("Control Card")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !rally.isFinalized {
+                    Button {
+                        isShowingScanner = true
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                    }
+                    .accessibilityLabel("Scan QR Code")
+                }
+            }
+        }
         .onAppear(perform: loadControlCardData)
         .onDisappear(perform: saveControlCardData)
         .onChange(of: scenePhase) { newPhase in
@@ -424,8 +436,11 @@ struct ControlCardView: View {
     // Finalize the control card by sending the data to your webservice.
     private func finalizeControlCard() {
         let payload: [String: Any] = [
-            "eqNumber": String(rally.eqNumber),
+            "eqNumber": rally.eqNumber,
             "rallyCode": rally.rallyCode ?? "",
+            "eqId": rally.eqId,
+            "cardId": rally.cardId,
+            "cardNumber": rally.cardNumber,
             "rows": rows.map { row in
                 return [
                     "id": row.id,
@@ -442,7 +457,7 @@ struct ControlCardView: View {
 //            return
 //        }
         
-        guard let url = URL(string: "https://webhook.site/1c31ed34-e29e-47d3-bf11-04d3573de1b6") else {
+        guard let url = URL(string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/saveAppEquipeKaart") else {
             activeAlert = .submission("Invalid URL.")
             return
         }

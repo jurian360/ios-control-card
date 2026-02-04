@@ -30,7 +30,7 @@ struct ContentView: View {
                                     NavigationLink {
                                         ControlCardView(rally: item)
                                     } label: {
-                                        Text("\(item.rallyName ?? "") - EQ: \(item.eqNumber)")
+                                        Text("\(item.rallyName ?? "") - KAART: \(item.cardNumber) - EQ: \(item.eqNumber)").textCase(.uppercase)
                                             .padding(.vertical, 8)
                                     }
                                 }
@@ -110,78 +110,107 @@ struct AddRallyView: View {
     }
     
     private func addRally() {
-            guard let url = URL(string: "https://sarkonline.com/wp-json/control-cards/v1/update-code") else {
-                errorMessage = "Invalid URL."
-                showError = true
+        var components = URLComponents(
+            string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/getEquipeDataByAppCode"
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "appcode", value: code)
+        ]
+
+        guard let url = components?.url else {
+            errorMessage = "Invalid URL."
+            showError = true
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                DispatchQueue.main.async {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
                 return
             }
-            
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            // Send the code as form-encoded data
-            let postString = "code=\(code)"
-            request.httpBody = postString.data(using: .utf8)
-            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-            
-            URLSession.shared.dataTask(with: request) { data, response, error in
-                if let error = error {
+
+            guard
+                let httpResponse = response as? HTTPURLResponse,
+                let data = data,
+                httpResponse.statusCode == 200
+            else {
+                DispatchQueue.main.async {
+                    errorMessage = "Unexpected server response."
+                    showError = true
+                }
+                return
+            }
+
+            do {
+                guard
+                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    let status = json["status"] as? String,
+                    status == "success"
+                else {
                     DispatchQueue.main.async {
-                        errorMessage = error.localizedDescription
+                        errorMessage = "Invalid response from server."
                         showError = true
                     }
                     return
                 }
-                
-                guard let httpResponse = response as? HTTPURLResponse else { return }
-                
-                if httpResponse.statusCode == 200, let data = data {
-                    // Try to parse the JSON response
+
+                let rallyCode = json["rallycode"] as? String ?? ""
+                let equipeNr = json["equipenr"] as? Int ?? 0
+                let equipeId = json["equipeid"] as? Int ?? 0
+                let kaartNr = json["kaartnr"] as? Int ?? 0
+                let kaartId = json["kaartid"] as? Int ?? 0
+
+                viewContext.perform {
+                    //DUPLICATE CHECK
+                    let fetchRequest: NSFetchRequest<Rally> = Rally.fetchRequest()
+                    fetchRequest.predicate = NSPredicate(format: "cardId == %d", kaartId)
+                    fetchRequest.fetchLimit = 1
+
                     do {
-                        if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                           let success = json["success"] as? Bool, success {
-                            
-                            // Retrieve returned rally_code and eq_number.
-                            let returnedRallyCode = json["rally_code"] as? String ?? ""
-                            let returnedEqNumber = json["eq_number"] as? String ?? "0"
-                            
-                            // Create a new Rally object and set its properties.
-                            let newRally = Rally(context: viewContext)
-                            newRally.rallyCode = returnedRallyCode
-                            newRally.rallyName = returnedRallyCode
-                            newRally.eqNumber = Int16(returnedEqNumber) ?? 0
-                            newRally.isFinalized = false
-                            
-                            try viewContext.save()
+                        let existing = try viewContext.fetch(fetchRequest)
+                        if !existing.isEmpty {
                             DispatchQueue.main.async {
-                                dismiss()
-                            }
-                        } else {
-                            DispatchQueue.main.async {
-                                errorMessage = "Invalid response from server."
+                                errorMessage = "This control card is already added."
                                 showError = true
                             }
+                            return
                         }
+
+                        //Safe to insert
+                        let newRally = Rally(context: viewContext)
+                        newRally.rallyCode = rallyCode
+                        newRally.rallyName = rallyCode
+                        newRally.eqNumber = Int16(equipeNr)
+                        newRally.eqId = Int16(equipeId)
+                        newRally.cardNumber = Int16(kaartNr)
+                        newRally.cardId = Int16(kaartId)
+                        newRally.isFinalized = false
+
+                        try viewContext.save()
+
+                        DispatchQueue.main.async {
+                            dismiss()
+                        }
+
                     } catch {
                         DispatchQueue.main.async {
-                            errorMessage = "Failed to parse response: \(error.localizedDescription)"
+                            errorMessage = "Database error while checking duplicates."
                             showError = true
                         }
                     }
-                } else if httpResponse.statusCode == 400 {
-                    // Display error when the code is already used.
-                    DispatchQueue.main.async {
-                        errorMessage = "The code has already been used."
-                        showError = true
-                    }
-                } else {
-                    // Handle any other unexpected HTTP status codes.
-                    DispatchQueue.main.async {
-                        errorMessage = "Unexpected error: HTTP \(httpResponse.statusCode)"
-                        showError = true
-                    }
                 }
-            }.resume()
-        }
+
+            } catch {
+                DispatchQueue.main.async {
+                    errorMessage = "Failed to parse response."
+                    showError = true
+                }
+            }
+        }.resume()
+    }
 }
 
 #Preview {

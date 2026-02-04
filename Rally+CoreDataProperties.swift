@@ -19,6 +19,9 @@ extension Rally {
     @NSManaged public var rallyCode: String?
     @NSManaged public var rallyName: String?
     @NSManaged public var eqNumber: Int16
+    @NSManaged public var eqId: Int16
+    @NSManaged public var cardNumber: Int16
+    @NSManaged public var cardId: Int16
     @NSManaged public var isFinalized: Bool
     @NSManaged public var controlecards: NSSet?
 
