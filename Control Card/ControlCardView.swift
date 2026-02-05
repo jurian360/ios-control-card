@@ -452,10 +452,15 @@ struct ControlCardView: View {
             }
         ]
         
-//        guard let url = URL(string: "https://www.sarkonline.com/wp-json/sarkcv/v1/insert") else {
-//            activeAlert = .submission("Invalid URL.")
-//            return
-//        }
+        // DEBUG: print payload as pretty JSON
+        do {
+            let debugData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+            if let debugJson = String(data: debugData, encoding: .utf8) {
+                print("🚀 FinalizeControlCard payload:\n\(debugJson)")
+            }
+        } catch {
+            print("❌ Failed to print debug JSON: \(error)")
+        }
         
         guard let url = URL(string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/saveAppEquipeKaart") else {
             activeAlert = .submission("Invalid URL.")

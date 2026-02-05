@@ -111,7 +111,7 @@ struct AddRallyView: View {
     
     private func addRally() {
         var components = URLComponents(
-            string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/getEquipeDataByAppCode"
+            string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/getEquipeByAppCode"
         )
         components?.queryItems = [
             URLQueryItem(name: "appcode", value: code)
@@ -147,8 +147,8 @@ struct AddRallyView: View {
             do {
                 guard
                     let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                    let status = json["status"] as? String,
-                    status == "success"
+                    let status = json["rallycode"] as? String,
+                    status != ""
                 else {
                     DispatchQueue.main.async {
                         errorMessage = "Invalid response from server."
@@ -166,7 +166,7 @@ struct AddRallyView: View {
                 viewContext.perform {
                     //DUPLICATE CHECK
                     let fetchRequest: NSFetchRequest<Rally> = Rally.fetchRequest()
-                    fetchRequest.predicate = NSPredicate(format: "cardId == %d", kaartId)
+                    fetchRequest.predicate = NSPredicate(format: "cardId == %d AND eqId == %d", kaartId, equipeId)
                     fetchRequest.fetchLimit = 1
 
                     do {
