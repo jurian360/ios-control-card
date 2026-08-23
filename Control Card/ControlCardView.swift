@@ -18,6 +18,31 @@ enum ControlCardAlert: Identifiable {
     }
 }
 
+// The shape of the paper controlekaart, and of what the points system reads back
+// from it: 30 lettered ORC rows of up to 4 columns, then the 6 merk rows, which
+// hold a single letter each and are scored vertically against the stage's merk
+// key. The server splits a submission on exactly these counts, so they are the
+// one place the card's size is written down.
+enum ControlCardLayout {
+    static let orcRows = 30
+    static let merkRows = 6
+    static let orcColumns = 4
+    static let totalRows = orcRows + merkRows
+
+    /// Rows 31-36 carry the merk column.
+    static func isMerkRow(_ id: Int) -> Bool { id > orcRows }
+
+    /// Merk rows are numbered 1-6 on the card, not 31-36.
+    static func label(for id: Int) -> String {
+        isMerkRow(id) ? "M\(id - orcRows)" : "\(id)"
+    }
+
+    /// How many letters a row holds. The merk column has one.
+    static func columns(for id: Int) -> Int {
+        isMerkRow(id) ? 1 : orcColumns
+    }
+}
+
 // Model for each row of the control card.
 struct ControlCardRow: Identifiable {
     let id: Int
@@ -33,6 +58,47 @@ struct ControlCardRow: Identifiable {
     var col4Locked: Bool = false
     
     var rowLocked: Bool = false
+
+    var isMerkRow: Bool { ControlCardLayout.isMerkRow(id) }
+
+    /// The number of letter cells this row shows.
+    var columnCount: Int { ControlCardLayout.columns(for: id) }
+
+    func value(_ column: Int) -> String {
+        switch column {
+        case 1: return col1
+        case 2: return col2
+        case 3: return col3
+        default: return col4
+        }
+    }
+
+    mutating func setValue(_ value: String, column: Int) {
+        switch column {
+        case 1: col1 = value
+        case 2: col2 = value
+        case 3: col3 = value
+        default: col4 = value
+        }
+    }
+
+    func isLocked(_ column: Int) -> Bool {
+        switch column {
+        case 1: return col1Locked
+        case 2: return col2Locked
+        case 3: return col3Locked
+        default: return col4Locked
+        }
+    }
+
+    mutating func lock(_ column: Int) {
+        switch column {
+        case 1: col1Locked = true
+        case 2: col2Locked = true
+        case 3: col3Locked = true
+        default: col4Locked = true
+        }
+    }
 }
 
 // Enum to represent each focusable field.
@@ -120,7 +186,7 @@ struct ControlCardView: View {
     @Environment(\.scenePhase) var scenePhase
 
     @ObservedObject var rally: Rally
-    @State private var rows: [ControlCardRow] = (1...36).map { ControlCardRow(id: $0) }
+    @State private var rows: [ControlCardRow] = (1...ControlCardLayout.totalRows).map { ControlCardRow(id: $0) }
     
     @State private var activeAlert: ControlCardAlert? = nil
     @FocusState private var focusedField: Field?
@@ -132,9 +198,16 @@ struct ControlCardView: View {
     var body: some View {
         Form {
             Section(header: Text("Rally Info")) {
+                Text("Rally: \((rally.rallyName ?? rally.rallyCode ?? "").uppercased())")
                 Text("Rally code: \((rally.rallyCode ?? "").uppercased())")
+                if let cardName = rally.cardName, !cardName.isEmpty {
+                    Text("Kaart: \(cardName)")
+                }
                 Text("Kaart nummer: \(rally.cardNumber)")
                 Text("EQ nummer: \(rally.eqNumber)")
+                if let crewName = rally.crewName, !crewName.isEmpty {
+                    Text("Equipe: \(crewName)")
+                }
                 if rally.isFinalized {
                     HStack {
                         Image(systemName: "checkmark.seal.fill")
@@ -159,104 +232,18 @@ struct ControlCardView: View {
                 }
             }
 
-            Section(header: tableHeaderView) {
-                ForEach($rows) { $row in
-                    HStack {
-                        Text("\(row.id)")
-                            .frame(width: 40, alignment: .center)
-                        
-                        // Column 1
-                        TextField("", text: $row.col1)
-                            .focused($focusedField, equals: .field(row: row.id, col: 1))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col1) { newValue in
-                                if row.rowLocked || row.col1Locked { return }
-                                let clean = sanitized(newValue)
-                                if row.col1 != clean { row.col1 = clean }
-                                if clean.count == 1 {
-                                    focusedField = .field(row: row.id, col: 2)
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col1Locked || row.rowLocked)
-                        
-                        // Column 2
-                        TextField("", text: $row.col2)
-                            .focused($focusedField, equals: .field(row: row.id, col: 2))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col2) { newValue in
-                                if row.rowLocked || row.col2Locked { return }
-                                let clean = sanitized(newValue)
-                                if row.col2 != clean { row.col2 = clean }
-                                if clean.count == 1 {
-                                    focusedField = .field(row: row.id, col: 3)
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col2Locked || row.rowLocked)
-                        
-                        // Column 3
-                        TextField("", text: $row.col3)
-                            .focused($focusedField, equals: .field(row: row.id, col: 3))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col3) { newValue in
-                                if row.rowLocked || row.col3Locked { return }
-                                let clean = sanitized(newValue)
-                                if row.col3 != clean { row.col3 = clean }
-                                if clean.count == 1 {
-                                    focusedField = .field(row: row.id, col: 4)
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col3Locked || row.rowLocked)
-                        
-                        // Column 4
-                        TextField("", text: $row.col4)
-                            .focused($focusedField, equals: .field(row: row.id, col: 4))
-                            .font(.system(size: 24))
-                            .padding(8)
-                            .frame(width: 70, height: 70)
-                            .multilineTextAlignment(.center)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray, lineWidth: 1)
-                            )
-                            .onChange(of: row.col4) { newValue in
-                                if row.rowLocked || row.col4Locked { return }
-                                let clean = sanitized(newValue)
-                                if row.col4 != clean { row.col4 = clean }
-                                if clean.count == 1 {
-                                    if let currentIndex = rows.firstIndex(where: { $0.id == row.id }),
-                                       currentIndex < rows.count - 1 {
-                                        let nextRow = rows[currentIndex + 1]
-                                        focusedField = .field(row: nextRow.id, col: 1)
-                                    } else {
-                                        focusedField = nil
-                                    }
-                                }
-                            }
-                            .disabled(rally.isFinalized || row.col4Locked || row.rowLocked)
-                    }
-                    .opacity(row.rowLocked ? 0.5 : 1.0)
-                    .background(row.rowLocked ? Color.gray.opacity(0.15) : Color.clear)
+            Section(header: orcHeaderView) {
+                ForEach(indices(merk: false), id: \.self) { index in
+                    rowView(at: index)
+                }
+            }
+
+            // The merk column is one letter per row, scored vertically against
+            // the stage's merk key. The points system reads only the first
+            // column of these rows, so this is the only column the card offers.
+            Section(header: merkHeaderView) {
+                ForEach(indices(merk: true), id: \.self) { index in
+                    rowView(at: index)
                 }
             }
 
@@ -358,18 +345,89 @@ struct ControlCardView: View {
         }
     }
 
-    // MARK: - Shared scan handler
+    // MARK: - The grid
 
-    private var tableHeaderView: some View {
+    private var orcHeaderView: some View {
         HStack {
-            Text("Row").frame(width: 40, alignment: .leading)
-            Text("Col1").frame(width: 70)
-            Text("Col2").frame(width: 70)
-            Text("Col3").frame(width: 70)
-            Text("Col4").frame(width: 70)
+            Text("ORC").frame(width: 40, alignment: .leading)
+            ForEach(1...ControlCardLayout.orcColumns, id: \.self) { column in
+                Text("Col\(column)").frame(width: 70)
+            }
+        }
+    }
+
+    private var merkHeaderView: some View {
+        HStack {
+            Text("Merk").frame(width: 40, alignment: .leading)
+            Text("Letter").frame(width: 70)
+        }
+    }
+
+    /// The positions in `rows` of one half of the card.
+    private func indices(merk: Bool) -> [Int] {
+        rows.indices.filter { rows[$0].isMerkRow == merk }
+    }
+
+    private func rowView(at index: Int) -> some View {
+        let row = rows[index]
+        return HStack {
+            Text(ControlCardLayout.label(for: row.id))
+                .frame(width: 40, alignment: .center)
+
+            ForEach(1...row.columnCount, id: \.self) { column in
+                cellView(at: index, column: column)
+            }
+        }
+        .opacity(row.rowLocked ? 0.5 : 1.0)
+        .background(row.rowLocked ? Color.gray.opacity(0.15) : Color.clear)
+    }
+
+    private func cellView(at index: Int, column: Int) -> some View {
+        let row = rows[index]
+        let text = Binding(
+            get: { self.rows[index].value(column) },
+            set: { newValue in
+                var updated = self.rows[index]
+                guard !updated.rowLocked, !updated.isLocked(column) else { return }
+
+                let clean = sanitized(newValue)
+                if updated.value(column) != clean {
+                    updated.setValue(clean, column: column)
+                    self.rows[index] = updated
+                }
+                // A cell that is full hands the keyboard on, whether or not the
+                // keystroke changed the letter that was already there.
+                if clean.count == 1 { self.advanceFocus(from: index, column: column) }
+            }
+        )
+
+        return TextField("", text: text)
+            .focused($focusedField, equals: .field(row: row.id, col: column))
+            .font(.system(size: 24))
+            .padding(8)
+            .frame(width: 70, height: 70)
+            .multilineTextAlignment(.center)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray, lineWidth: 1)
+            )
+            .disabled(rally.isFinalized || row.rowLocked || row.isLocked(column))
+    }
+
+    /// A filled cell hands the keyboard to the next one: the next column of the
+    /// row, or the first column of the row below when the row is full.
+    private func advanceFocus(from index: Int, column: Int) {
+        if column < rows[index].columnCount {
+            focusedField = .field(row: rows[index].id, col: column + 1)
+        } else if index + 1 < rows.count {
+            focusedField = .field(row: rows[index + 1].id, col: 1)
+        } else {
+            focusedField = nil
         }
     }
     
+    // MARK: - Shared scan handler
+
     private func handleScanned(code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         let upper = trimmed.uppercased()
@@ -419,22 +477,23 @@ struct ControlCardView: View {
         let value = String(char)
 
         if rowData.rowLocked {
-            activeAlert = .submission("Row \(row) is locked and cannot be changed.")
+            activeAlert = .submission("Row \(ControlCardLayout.label(for: row)) is locked and cannot be changed.")
             return
         }
 
-        if rowData.col1.isEmpty && !rowData.col1Locked {
-            rowData.col1 = value; rowData.col1Locked = true
-        } else if rowData.col2.isEmpty && !rowData.col2Locked {
-            rowData.col2 = value; rowData.col2Locked = true
-        } else if rowData.col3.isEmpty && !rowData.col3Locked {
-            rowData.col3 = value; rowData.col3Locked = true
-        } else if rowData.col4.isEmpty && !rowData.col4Locked {
-            rowData.col4 = value; rowData.col4Locked = true
-        } else {
-            activeAlert = .submission("Row \(row) already has all 4 columns filled.")
+        // Fill the first free column this row has. A merk row has one; an ORC
+        // row has four.
+        guard let column = (1...rowData.columnCount).first(where: {
+            rowData.value($0).isEmpty && !rowData.isLocked($0)
+        }) else {
+            activeAlert = .submission(
+                "Row \(ControlCardLayout.label(for: row)) already has all \(rowData.columnCount) column(s) filled."
+            )
             return
         }
+
+        rowData.setValue(value, column: column)
+        rowData.lock(column)
 
         rows[index] = rowData
         saveControlCardData()
@@ -457,10 +516,7 @@ struct ControlCardView: View {
 
             var row = rows[index]
             row.rowLocked = true
-            row.col1Locked = true
-            row.col2Locked = true
-            row.col3Locked = true
-            row.col4Locked = true
+            for column in 1...ControlCardLayout.orcColumns { row.lock(column) }
             rows[index] = row
             lockedAny = true
         }
@@ -537,61 +593,57 @@ struct ControlCardView: View {
 
     // MARK: - Finalize
 
+    /// Hands the card in to the ORC points system. Only the letters travel: the
+    /// server grades them against the stage's key and re-scores the crew's rally,
+    /// exactly as when an official types the paper card.
+    ///
+    /// A card is handed in once. The code is spent on success, so a second
+    /// attempt is refused until an official reopens it from the QR page — which
+    /// is also why a refusal on that ground closes the card here.
     private func finalizeControlCard() {
-        let payload: [String: Any] = [
-            "eqNumber": rally.eqNumber,
-            "rallyCode": rally.rallyCode ?? "",
-            "eqId": rally.eqId,
-            "cardId": rally.cardId,
-            "cardNumber": rally.cardNumber,
-            "rows": rows.map { row in
-                ["id": row.id, "col1": row.col1, "col2": row.col2,
-                 "col3": row.col3, "col4": row.col4]
-            }
-        ]
-        
-        do {
-            let debugData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
-            if let debugJson = String(data: debugData, encoding: .utf8) {
-                print("🚀 FinalizeControlCard payload:\n\(debugJson)")
-            }
-        } catch { print("❌ Failed to print debug JSON: \(error)") }
-        
-        guard let url = URL(string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/saveAppEquipeKaart") else {
-            activeAlert = .submission("Invalid URL.")
+        saveControlCardData()
+
+        guard let rallyCode = rally.rallyCode, !rallyCode.isEmpty else {
+            activeAlert = .submission("This card has no rally code. Add it again from its QR code.")
             return
         }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
+
+        let submission = CardSubmission(
+            rallyCode: rallyCode,
+            cardId: Int(rally.cardId),
+            cardNumber: Int(rally.cardNumber),
+            eqNumber: Int(rally.eqNumber),
+            eqId: Int(rally.eqId),
+            rows: rows.map { row in
+                CardSubmission.Row(id: row.id, col1: row.col1, col2: row.col2,
+                                   col3: row.col3, col4: row.col4)
+            }
+        )
+
+        ORCPointsAPI.submit(submission) { result in
+            switch result {
+            case .success:
+                markFinalized()
+                activeAlert = .submission("Control card handed in.")
+
+            case .failure(let error):
+                // The server already holds this card, so the phone should say so
+                // too rather than offering to send it again.
+                if let refusal = error as? ORCPointsError, case .alreadySubmitted = refusal {
+                    markFinalized()
+                }
+                activeAlert = .submission(error.localizedDescription)
+            }
+        }
+    }
+
+    private func markFinalized() {
+        rally.isFinalized = true
         do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+            try viewContext.save()
         } catch {
-            activeAlert = .submission("Error encoding JSON: \(error.localizedDescription)")
-            return
+            print("Error marking the control card as finalized: \(error.localizedDescription)")
         }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async {
-                    activeAlert = .submission("Error sending data: \(error.localizedDescription)")
-                }
-                return
-            }
-            if let httpResponse = response as? HTTPURLResponse {
-                DispatchQueue.main.async {
-                    if httpResponse.statusCode == 200 {
-                        activeAlert = .submission("Data submitted successfully!")
-                        rally.isFinalized = true
-                        try? viewContext.save()
-                    } else {
-                        activeAlert = .submission("Submission failed with status code: \(httpResponse.statusCode)")
-                    }
-                }
-            }
-        }.resume()
     }
 }
 

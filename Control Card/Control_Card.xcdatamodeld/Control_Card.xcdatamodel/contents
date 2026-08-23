@@ -16,7 +16,9 @@
     </entity>
     <entity name="Rally" representedClassName="Rally" syncable="YES">
         <attribute name="cardId" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="cardName" optional="YES" attributeType="String"/>
         <attribute name="cardNumber" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="crewName" optional="YES" attributeType="String"/>
         <attribute name="eqId" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="eqNumber" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="isFinalized" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
