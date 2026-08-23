@@ -31,8 +31,19 @@ struct ContentView: View {
                             NavigationLink {
                                 ControlCardView(rally: item)
                             } label: {
-                                Text("\(item.rallyName ?? "") - KAART: \(item.cardNumber) - EQ: \(item.eqNumber)").textCase(.uppercase)
-                                    .padding(.vertical, 8)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(item.rallyName ?? item.rallyCode ?? "") - KAART: \(item.cardNumber) - EQ: \(item.eqNumber)")
+                                        .textCase(.uppercase)
+
+                                    // What the points system knows about the card
+                                    // and the crew, when the entry list holds it.
+                                    if let subtitle = subtitle(for: item) {
+                                        Text(subtitle)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 8)
                             }
                         }
                         .onDelete(perform: deleteItems)
@@ -55,6 +66,14 @@ struct ContentView: View {
             }
             Text("Select an item")
         }
+    }
+
+    /// The card's own name and its crew, joined into one caption line.
+    private func subtitle(for rally: Rally) -> String? {
+        let parts = [rally.cardName, rally.crewName]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " - ")
     }
 
     private func deleteItems(offsets: IndexSet) {
@@ -289,104 +308,78 @@ struct AddRallyView: View {
 
     // MARK: - Network Request
 
+    /// Pulls the card behind the code out of the ORC points system and stores it
+    /// locally. Nothing else is fetched: from here on the card is typed offline
+    /// and only travels back when the crew finalizes it.
     private func addRally() {
-        var components = URLComponents(
-            string: "https://orc.sarkonline.com/umbraco/surface/controlekaart/getEquipeByAppCode"
-        )
-        components?.queryItems = [
-            URLQueryItem(name: "appcode", value: code)
-        ]
-
-        guard let url = components?.url else {
-            errorMessage = "Invalid URL."
+        let trimmed = ApiConfig.normalize(code)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Enter or scan a code first."
             showError = true
             return
         }
 
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            if let error = error {
-                DispatchQueue.main.async {
-                    errorMessage = error.localizedDescription
-                    showError = true
-                }
+        ORCPointsAPI.fetchCard(code: trimmed) { result in
+            switch result {
+            case .failure(let error):
+                errorMessage = error.localizedDescription
+                showError = true
+
+            case .success(let card):
+                store(card)
+            }
+        }
+    }
+
+    /// Writes the looked-up card to Core Data, refusing a card the crew already
+    /// has. A card is identified by its rally, its card number and its equipe —
+    /// the card number alone repeats across rallies.
+    private func store(_ card: CardLookup) {
+        guard let eqNumber = Int16(exactly: card.eqNumber),
+              let eqId = Int16(exactly: card.eqId),
+              let cardId = Int16(exactly: card.cardId),
+              let cardNumber = Int16(exactly: card.cardNumber) else {
+            errorMessage = "This card has numbers this app cannot store."
+            showError = true
+            return
+        }
+
+        let fetchRequest: NSFetchRequest<Rally> = Rally.fetchRequest()
+        fetchRequest.predicate = NSPredicate(
+            format: "rallyCode ==[c] %@ AND cardId == %d AND eqNumber == %d",
+            card.rallyCode, cardId, eqNumber
+        )
+        fetchRequest.fetchLimit = 1
+
+        do {
+            if try !viewContext.fetch(fetchRequest).isEmpty {
+                errorMessage = "This control card is already added."
+                showError = true
                 return
             }
 
-            guard
-                let httpResponse = response as? HTTPURLResponse,
-                let data = data,
-                httpResponse.statusCode == 200
-            else {
-                DispatchQueue.main.async {
-                    errorMessage = "Unexpected server response."
-                    showError = true
-                }
-                return
-            }
+            let newRally = Rally(context: viewContext)
+            newRally.rallyCode  = card.rallyCode
+            // The rally's own name when the points system knows one; its code is
+            // what is printed on the card, so it is the fallback.
+            newRally.rallyName  = card.rallyName.isEmpty ? card.rallyCode : card.rallyName
+            newRally.cardName   = card.cardName
+            newRally.crewName   = card.crewName
+            newRally.eqNumber   = eqNumber
+            newRally.eqId       = eqId
+            newRally.cardNumber = cardNumber
+            newRally.cardId     = cardId
+            // A code that has already been handed in gives back a card that can
+            // be read but not sent again, so it is added closed.
+            newRally.isFinalized = card.alreadySubmitted
 
-            do {
-                guard
-                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                    let status = json["rallycode"] as? String,
-                    status != ""
-                else {
-                    DispatchQueue.main.async {
-                        errorMessage = "Invalid response from server."
-                        showError = true
-                    }
-                    return
-                }
+            try viewContext.save()
+            dismiss()
 
-                let rallyCode  = json["rallycode"]  as? String ?? ""
-                let equipeNr   = json["equipenr"]   as? Int    ?? 0
-                let equipeId   = json["equipeid"]   as? Int    ?? 0
-                let kaartNr    = json["kaartnr"]    as? Int    ?? 0
-                let kaartId    = json["kaartid"]    as? Int    ?? 0
-
-                viewContext.perform {
-                    // Duplicate check
-                    let fetchRequest: NSFetchRequest<Rally> = Rally.fetchRequest()
-                    fetchRequest.predicate = NSPredicate(format: "cardId == %d AND eqId == %d", kaartId, equipeId)
-                    fetchRequest.fetchLimit = 1
-
-                    do {
-                        let existing = try viewContext.fetch(fetchRequest)
-                        if !existing.isEmpty {
-                            DispatchQueue.main.async {
-                                errorMessage = "This control card is already added."
-                                showError = true
-                            }
-                            return
-                        }
-
-                        let newRally = Rally(context: viewContext)
-                        newRally.rallyCode  = rallyCode
-                        newRally.rallyName  = rallyCode
-                        newRally.eqNumber   = Int16(equipeNr)
-                        newRally.eqId       = Int16(equipeId)
-                        newRally.cardNumber = Int16(kaartNr)
-                        newRally.cardId     = Int16(kaartId)
-                        newRally.isFinalized = false
-
-                        try viewContext.save()
-
-                        DispatchQueue.main.async { dismiss() }
-
-                    } catch {
-                        DispatchQueue.main.async {
-                            errorMessage = "Database error while checking duplicates."
-                            showError = true
-                        }
-                    }
-                }
-
-            } catch {
-                DispatchQueue.main.async {
-                    errorMessage = "Failed to parse response."
-                    showError = true
-                }
-            }
-        }.resume()
+        } catch {
+            errorMessage = "Could not store this control card."
+            showError = true
+        }
     }
 }
 

@@ -37,6 +37,14 @@ struct PersistenceController {
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         }
+        // A store written by an earlier version is migrated in place. Both flags
+        // are on by default, but a card typed on a rally day is not the moment to
+        // find out that a default changed: the model only ever gains optional
+        // attributes, which is exactly what an inferred mapping handles.
+        container.persistentStoreDescriptions.forEach { description in
+            description.shouldMigrateStoreAutomatically = true
+            description.shouldInferMappingModelAutomatically = true
+        }
         container.loadPersistentStores(completionHandler: { (storeDescription, error) in
             if let error = error as NSError? {
                 // Replace this implementation with code to handle the error appropriately.

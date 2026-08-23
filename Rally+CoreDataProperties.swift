@@ -21,6 +21,10 @@ extension Rally {
     @NSManaged public var eqNumber: Int16
     @NSManaged public var eqId: Int16
     @NSManaged public var cardNumber: Int16
+    /// The stage's own name, as the points system calls it.
+    @NSManaged public var cardName: String?
+    /// Driver / navigator of this equipe, when the entry list holds them.
+    @NSManaged public var crewName: String?
     @NSManaged public var cardId: Int16
     @NSManaged public var isFinalized: Bool
     @NSManaged public var controlecards: NSSet?
