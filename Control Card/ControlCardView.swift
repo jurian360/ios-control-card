@@ -19,28 +19,12 @@ enum ControlCardAlert: Identifiable {
 }
 
 // The shape of the paper controlekaart, and of what the points system reads back
-// from it: 30 lettered ORC rows of up to 4 columns, then the 6 merk rows, which
-// hold a single letter each and are scored vertically against the stage's merk
-// key. The server splits a submission on exactly these counts, so they are the
-// one place the card's size is written down.
+// from it: 30 numbered ORC rows of up to 4 columns. The server splits a
+// submission on exactly these counts, so they are the one place the card's size
+// is written down.
 enum ControlCardLayout {
     static let orcRows = 30
-    static let merkRows = 6
     static let orcColumns = 4
-    static let totalRows = orcRows + merkRows
-
-    /// Rows 31-36 carry the merk column.
-    static func isMerkRow(_ id: Int) -> Bool { id > orcRows }
-
-    /// Merk rows are numbered 1-6 on the card, not 31-36.
-    static func label(for id: Int) -> String {
-        isMerkRow(id) ? "M\(id - orcRows)" : "\(id)"
-    }
-
-    /// How many letters a row holds. The merk column has one.
-    static func columns(for id: Int) -> Int {
-        isMerkRow(id) ? 1 : orcColumns
-    }
 }
 
 // Model for each row of the control card.
@@ -59,10 +43,8 @@ struct ControlCardRow: Identifiable {
     
     var rowLocked: Bool = false
 
-    var isMerkRow: Bool { ControlCardLayout.isMerkRow(id) }
-
     /// The number of letter cells this row shows.
-    var columnCount: Int { ControlCardLayout.columns(for: id) }
+    var columnCount: Int { ControlCardLayout.orcColumns }
 
     func value(_ column: Int) -> String {
         switch column {
@@ -104,6 +86,13 @@ struct ControlCardRow: Identifiable {
 // Enum to represent each focusable field.
 enum Field: Hashable {
     case field(row: Int, col: Int)
+}
+
+/// The two halves of the card: what the points system knows about this crew,
+/// and the letters they type in.
+enum ControlCardTab: Hashable {
+    case rally
+    case card
 }
 
 // Letters the user is not allowed to type (case-insensitive).
@@ -186,90 +175,41 @@ struct ControlCardView: View {
     @Environment(\.scenePhase) var scenePhase
 
     @ObservedObject var rally: Rally
-    @State private var rows: [ControlCardRow] = (1...ControlCardLayout.totalRows).map { ControlCardRow(id: $0) }
+    @State private var rows: [ControlCardRow] = (1...ControlCardLayout.orcRows).map { ControlCardRow(id: $0) }
     
     @State private var activeAlert: ControlCardAlert? = nil
     @FocusState private var focusedField: Field?
     @State private var isShowingScanner = false
+    @State private var selectedTab: ControlCardTab = .card
 
     /// Keep the NFCReader alive for the lifetime of the view.
     @StateObject private var nfcReader = NFCReader()
 
+    /// Room under the scrolling content so the floating tab bar never covers
+    /// the last row or the finalize button.
+    private let tabBarClearance: CGFloat = 84
+
     var body: some View {
-        Form {
-            Section(header: Text("Rally Info")) {
-                Text("Rally: \((rally.rallyName ?? rally.rallyCode ?? "").uppercased())")
-                Text("Rally code: \((rally.rallyCode ?? "").uppercased())")
-                if let cardName = rally.cardName, !cardName.isEmpty {
-                    Text("Kaart: \(cardName)")
-                }
-                Text("Kaart nummer: \(rally.cardNumber)")
-                Text("EQ nummer: \(rally.eqNumber)")
-                if let crewName = rally.crewName, !crewName.isEmpty {
-                    Text("Equipe: \(crewName)")
-                }
-                if rally.isFinalized {
-                    HStack {
-                        Image(systemName: "checkmark.seal.fill")
-                        Text("Status: Finalized")
-                    }
-                    .foregroundColor(.green)
-                    .font(.headline)
-                } else {
-                    Button(action: {
-                        activeAlert = .confirmation
-                    }) {
-                        HStack {
-                            Spacer()
-                            Text("Finalize Card")
-                                .bold()
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .padding(.vertical, 4)
-                }
-            }
+        ZStack(alignment: .bottom) {
+            GlassBackdrop()
 
-            Section(header: orcHeaderView) {
-                ForEach(indices(merk: false), id: \.self) { index in
-                    rowView(at: index)
-                }
+            TabView(selection: $selectedTab) {
+                rallyTab.tag(ControlCardTab.rally)
+                cardTab.tag(ControlCardTab.card)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
 
-            // The merk column is one letter per row, scored vertically against
-            // the stage's merk key. The points system reads only the first
-            // column of these rows, so this is the only column the card offers.
-            Section(header: merkHeaderView) {
-                ForEach(indices(merk: true), id: \.self) { index in
-                    rowView(at: index)
-                }
-            }
-
-            if !rally.isFinalized {
-                Section {
-                    Button {
-                        isShowingScanner = true
-                    } label: {
-                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
-                    }
-
-                    Button {
-                        startNFCScan()
-                    } label: {
-                        Label("Scan NFC Tag", systemImage: "wave.3.right")
-                    }
-                }
-                
-                Section {
-                    Button("Finalize") {
-                        activeAlert = .confirmation
-                    }
-                }
-            }
+            GlassTabBar<ControlCardTab>(
+                items: [
+                    .init(selection: .rally, title: "Rally", systemImage: "flag.checkered"),
+                    .init(selection: .card, title: "Control Card", systemImage: "tablecells")
+                ],
+                selection: $selectedTab
+            )
+            .padding(.bottom, 8)
         }
         .navigationTitle("Control Card")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if !rally.isFinalized {
@@ -290,10 +230,15 @@ struct ControlCardView: View {
                     }
                 }
             }
+
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focusedField = nil }
+            }
         }
         .onAppear(perform: loadControlCardData)
         .onDisappear(perform: saveControlCardData)
-        .onChange(of: scenePhase) { newPhase in
+        .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
                 saveControlCardData()
             }
@@ -330,6 +275,178 @@ struct ControlCardView: View {
         }
     }
 
+    // MARK: - Tabs
+
+    /// What the points system knows about this card and its crew.
+    private var rallyTab: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                VStack(spacing: 0) {
+                    infoRow("Rally", (rally.rallyName ?? rally.rallyCode ?? "").uppercased(), isFirst: true)
+                    infoRow("Rally code", (rally.rallyCode ?? "").uppercased())
+                    if let cardName = rally.cardName, !cardName.isEmpty {
+                        infoRow("Kaart", cardName)
+                    }
+                    infoRow("Kaart nummer", "\(rally.cardNumber)")
+                    infoRow("EQ nummer", "\(rally.eqNumber)")
+                    if let crewName = rally.crewName, !crewName.isEmpty {
+                        infoRow("Equipe", crewName)
+                    }
+                }
+                .glassCard()
+
+                statusCard
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Glass.padding)
+            .padding(.top, Glass.padding)
+            .padding(.bottom, tabBarClearance)
+        }
+    }
+
+    /// The 30 ORC rows and the button that hands them in.
+    private var cardTab: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                VStack(spacing: 0) {
+                    orcHeaderView
+                        .padding(.bottom, 8)
+
+                    ForEach(rows.indices, id: \.self) { index in
+                        rowView(at: index)
+                    }
+                }
+                .glassCard()
+
+                if !rally.isFinalized {
+                    scanCard
+                }
+
+                finalizeCard
+            }
+            .padding(.horizontal, Glass.padding)
+            .padding(.top, Glass.padding)
+            .padding(.bottom, tabBarClearance)
+        }
+    }
+
+    // MARK: - Cards
+
+    /// One line of the rally card. The rule sits above the line rather than
+    /// below it, so the last line never trails off into a divider whichever of
+    /// the optional lines the points system gave us.
+    private func infoRow(_ label: String, _ value: String, isFirst: Bool = false) -> some View {
+        VStack(spacing: 0) {
+            if !isFirst {
+                Divider().opacity(0.4)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 12)
+                Text(value)
+                    .font(.headline)
+                    .multilineTextAlignment(.trailing)
+            }
+            .padding(.vertical, 10)
+        }
+    }
+
+    private var statusCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: rally.isFinalized ? "checkmark.seal.fill" : "square.and.pencil")
+                .font(.title2)
+                .foregroundColor(rally.isFinalized ? .green : .accentColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rally.isFinalized ? "Finalized" : "Open")
+                    .font(.headline)
+                Text(rally.isFinalized
+                     ? "This card has been handed in and can no longer be edited."
+                     : "Fill in the control card, then finalize it from the Control Card tab.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .glassCard()
+    }
+
+    private var scanCard: some View {
+        HStack(spacing: 12) {
+            Button {
+                isShowingScanner = true
+            } label: {
+                Label("Scan QR", systemImage: "qrcode.viewfinder")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: Glass.innerCornerRadius, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.18))
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                startNFCScan()
+            } label: {
+                Label("Scan NFC", systemImage: "wave.3.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: Glass.innerCornerRadius, style: .continuous)
+                            .fill(Color.accentColor.opacity(0.18))
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .glassCard(padding: 12)
+    }
+
+    @ViewBuilder
+    private var finalizeCard: some View {
+        if rally.isFinalized {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.seal.fill")
+                Text("Card handed in")
+                    .font(.headline)
+            }
+            .foregroundColor(.green)
+            .frame(maxWidth: .infinity)
+            .glassCard()
+        } else {
+            Button {
+                activeAlert = .confirmation
+            } label: {
+                Label("Finalize Card", systemImage: "paperplane.fill")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: Glass.cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .shadow(color: Color.accentColor.opacity(0.35), radius: 14, x: 0, y: 8)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     // MARK: - NFC
 
     private func startNFCScan() {
@@ -348,42 +465,37 @@ struct ControlCardView: View {
     // MARK: - The grid
 
     private var orcHeaderView: some View {
-        HStack {
-            Text("ORC").frame(width: 40, alignment: .leading)
+        HStack(spacing: 8) {
+            Text("ORC")
+                .frame(width: 30, alignment: .leading)
             ForEach(1...ControlCardLayout.orcColumns, id: \.self) { column in
-                Text("Col\(column)").frame(width: 70)
+                Text("Col\(column)")
+                    .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private var merkHeaderView: some View {
-        HStack {
-            Text("Merk").frame(width: 40, alignment: .leading)
-            Text("Letter").frame(width: 70)
-        }
-    }
-
-    /// The positions in `rows` of one half of the card.
-    private func indices(merk: Bool) -> [Int] {
-        rows.indices.filter { rows[$0].isMerkRow == merk }
+        .font(.caption.weight(.semibold))
+        .foregroundColor(.secondary)
     }
 
     private func rowView(at index: Int) -> some View {
         let row = rows[index]
-        return HStack {
-            Text(ControlCardLayout.label(for: row.id))
-                .frame(width: 40, alignment: .center)
+        return HStack(spacing: 8) {
+            Text("\(row.id)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 30, alignment: .center)
 
             ForEach(1...row.columnCount, id: \.self) { column in
                 cellView(at: index, column: column)
             }
         }
+        .padding(.vertical, 3)
         .opacity(row.rowLocked ? 0.5 : 1.0)
-        .background(row.rowLocked ? Color.gray.opacity(0.15) : Color.clear)
     }
 
     private func cellView(at index: Int, column: Int) -> some View {
         let row = rows[index]
+        let locked = row.rowLocked || row.isLocked(column)
         let text = Binding(
             get: { self.rows[index].value(column) },
             set: { newValue in
@@ -403,15 +515,20 @@ struct ControlCardView: View {
 
         return TextField("", text: text)
             .focused($focusedField, equals: .field(row: row.id, col: column))
-            .font(.system(size: 24))
-            .padding(8)
-            .frame(width: 70, height: 70)
+            .font(.system(size: 22, weight: .semibold, design: .rounded))
             .multilineTextAlignment(.center)
+            .textInputAutocapitalization(.characters)
+            .disableAutocorrection(true)
+            .frame(maxWidth: .infinity, minHeight: 46)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.gray, lineWidth: 1)
+                RoundedRectangle(cornerRadius: Glass.innerCornerRadius, style: .continuous)
+                    .fill(locked ? Color.primary.opacity(0.10) : Color.white.opacity(0.18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Glass.innerCornerRadius, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
+                    )
             )
-            .disabled(rally.isFinalized || row.rowLocked || row.isLocked(column))
+            .disabled(rally.isFinalized || locked)
     }
 
     /// A filled cell hands the keyboard to the next one: the next column of the
@@ -477,17 +594,16 @@ struct ControlCardView: View {
         let value = String(char)
 
         if rowData.rowLocked {
-            activeAlert = .submission("Row \(ControlCardLayout.label(for: row)) is locked and cannot be changed.")
+            activeAlert = .submission("Row \(row) is locked and cannot be changed.")
             return
         }
 
-        // Fill the first free column this row has. A merk row has one; an ORC
-        // row has four.
+        // Fill the first free column this row has.
         guard let column = (1...rowData.columnCount).first(where: {
             rowData.value($0).isEmpty && !rowData.isLocked($0)
         }) else {
             activeAlert = .submission(
-                "Row \(ControlCardLayout.label(for: row)) already has all \(rowData.columnCount) column(s) filled."
+                "Row \(row) already has all \(rowData.columnCount) column(s) filled."
             )
             return
         }
@@ -551,6 +667,15 @@ struct ControlCardView: View {
                     rows[i].col4Locked = card.col4Locked
                     rows[i].rowLocked  = card.rowLocked
                 }
+            }
+
+            // A card typed before the merk column was dropped still carries rows
+            // past the 30th. They are no longer part of the card, so they go
+            // rather than travel along on the next submission.
+            let stale = existingCards.filter { $0.row > Int16(ControlCardLayout.orcRows) }
+            if !stale.isEmpty {
+                stale.forEach(viewContext.delete)
+                try viewContext.save()
             }
         } catch {
             print("Failed to fetch control cards: \(error)")

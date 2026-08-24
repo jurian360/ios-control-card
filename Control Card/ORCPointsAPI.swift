@@ -109,7 +109,7 @@ extension CardLookup: Decodable {
 /// The body of `POST /api/app/submit`.
 ///
 /// Nothing about the scoring comes from the phone: the app sends the letters of
-/// the 30 ORC rows and the 6 merk rows, and the server grades them.
+/// the 30 ORC rows, and the server grades them.
 struct CardSubmission: Encodable {
 
     struct Row: Encodable {
